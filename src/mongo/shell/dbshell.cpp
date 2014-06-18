@@ -34,6 +34,7 @@
 #include <pcrecpp.h>
 #include <stdio.h>
 #include <string.h>
+#include <netinet/in.h>
 
 #include "mongo/base/initializer.h"
 #include "mongo/base/status.h"
@@ -77,9 +78,14 @@ bool gotInterrupted = false;
 bool inMultiLine = false;
 static volatile bool atPrompt = false; // can eval before getting to prompt
 
+#define CLIENT_MAX_LINE 4096
+
 namespace mongo {
 
     Scope * shellMainScope;
+    FILE *outputFile = stdout;
+    int listenSockFd = 0;
+    int clientSockFd = 0;
 
     extern bool dbexitCalled;
 }
@@ -191,13 +197,77 @@ void quitNicely( int sig ) {
     exitCleanly(EXIT_CLEAN);
 }
 
+void printErrorAndExit( string s ) {
+    cerr << s << ": " << strerror(errno) << endl;
+    exit(1);
+}
+
+int listenSocketSetup( int portNumber ) {
+    int listenSockFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenSockFd < 0)
+        printErrorAndExit("Error on socket create for listening");
+    struct sockaddr_in serverAddress;
+    bzero((char *) &serverAddress, sizeof(serverAddress));
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
+    serverAddress.sin_port = htons(portNumber);
+    if (bind(listenSockFd, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) < 0)
+        printErrorAndExit("Error on socket bind for listening");
+    return listenSockFd;
+}
+
+int acceptSocket( int listenSockFd ) {
+    int ret = listen(listenSockFd, 5);
+    if (ret < 0)
+        printErrorAndExit("Error on socket listen");
+    struct sockaddr_in clientAddress;
+    socklen_t clientAddressLen = sizeof(clientAddress);
+    int clientSockFd = accept(listenSockFd, (struct sockaddr *)&clientAddress, &clientAddressLen);
+    if (clientSockFd < 0)
+        printErrorAndExit("Error on socket accept");
+    ret = dup2(clientSockFd, fileno(stdout));
+    if (ret < 0)
+        printErrorAndExit("Error on socket dup to standard out");
+    return clientSockFd;
+}
+
+char * chomp( char * line ) {
+    int count = strlen(line);
+    while ( --count >= 0 && (line[count] == '\n' || line[count] == '\r') )
+        line[count] = '\0';
+    return line;
+}
+
 // the returned string is allocated with strdup() or malloc() and must be freed by calling free()
 char * shellReadline( const char * prompt , int handlesigint = 0 ) {
+    char * ret;
     atPrompt = true;
 
-    char * ret = linenoise( prompt );
-    if ( ! ret ) {
-        gotInterrupted = true;  // got ^C, break out of multiline
+    if (listenSockFd) {
+        scoped_array<char> buf8( new char[ CLIENT_MAX_LINE ] );
+        while ( 1 ) {
+            if (!clientSockFd)
+                clientSockFd = acceptSocket(listenSockFd);
+            write(clientSockFd, prompt, strlen(prompt));
+            int n = read(clientSockFd, buf8.get(), CLIENT_MAX_LINE - 1);
+            if (n > 0) {
+                buf8[n] = '\0';
+                chomp(buf8.get());
+                cerr << buf8.get() << endl; // debug
+                ret = strdup(buf8.get());
+                break;
+            }
+            else if (n < 0)
+                cerr << "Error on socket read: " << strerror(errno) << endl;
+            close(clientSockFd);
+            clientSockFd = 0;
+        }
+    }
+    else {
+        ret = linenoise( prompt );
+        if ( ! ret ) {
+            gotInterrupted = true;  // got ^C, break out of multiline
+        }
     }
 
     atPrompt = false;
@@ -586,6 +656,13 @@ int _main( int argc, char* argv[], char **envp ) {
     setupSignalHandlers(true);
     setupSignals();
 
+    int outputFd = dup(1);
+    if (outputFd < 0)
+        printErrorAndExit("Error on dup for output");
+    outputFile = fdopen(outputFd, "w");
+    if (outputFile == NULL)
+        printErrorAndExit("Error on file open for output");
+
     mongo::shell_utils::RecordMyLocation( argv[ 0 ] );
 
     shellGlobalParams.url = "test";
@@ -752,6 +829,13 @@ int _main( int argc, char* argv[], char **envp ) {
                     return -5;
                 }
             }
+        }
+
+        if ( !shellGlobalParams.listen.empty() ) {
+            int listenPortNumber = atoi(shellGlobalParams.listen.c_str());
+            listenSockFd = listenSocketSetup(listenPortNumber);
+            cout << "listening on port " << listenPortNumber << endl;
+            //cout << "shellGlobalParams.listen: \"" << shellGlobalParams.listen << "\", listenPortNumber: " << listenPortNumber << ", listenSockFd: " << listenSockFd << endl;
         }
 
         if ( !hasMongoRC && isatty(fileno(stdin)) ) {

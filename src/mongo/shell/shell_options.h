@@ -46,6 +46,7 @@ namespace mongo {
         std::string url;
         std::string dbhost;
         std::string port;
+        std::string listen;
         std::vector<std::string> files;
 
         std::string username;

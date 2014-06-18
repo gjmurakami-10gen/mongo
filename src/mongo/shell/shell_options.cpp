@@ -64,6 +64,8 @@ namespace mongo {
 
         options->addOptionChaining("eval", "eval", moe::String, "evaluate javascript");
 
+        options->addOptionChaining("listen", "listen", moe::String, "port to listen on");
+
         moe::OptionSection authenticationOptions("Authentication Options");
 
         authenticationOptions.addOptionChaining("username", "username,u", moe::String,
@@ -195,6 +197,10 @@ namespace mongo {
 
         if (params.count("eval")) {
             shellGlobalParams.script = params["eval"].as<string>();
+        }
+
+        if (params.count("listen")) {
+            shellGlobalParams.listen = params["listen"].as<string>();
         }
 
         if (params.count("username")) {

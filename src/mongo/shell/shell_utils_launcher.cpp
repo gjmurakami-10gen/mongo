@@ -58,6 +58,7 @@
 namespace mongo {
 
     extern bool dbexitCalled;
+    extern FILE * outputFile;
 
 #ifdef _WIN32
     inline int close(int fd) { return _close(fd); }
@@ -165,8 +166,8 @@ namespace mongo {
                 buf << " m" << port << "| " << line;
             else
                 buf << "sh" << pid << "| " << line;
-            printf( "%s\n", buf.str().c_str() ); // cout << buf.str() << endl;
-            fflush(stdout); // not implicit if stdout isn't directly outputting to a console.
+            fprintf(outputFile, "%s\n", buf.str().c_str() ); // cout << buf.str() << endl;
+            fflush(outputFile); // not implicit if stdout isn't directly outputting to a console.
             _buffer << buf.str() << endl;
         }
 
