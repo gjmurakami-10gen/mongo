@@ -54,6 +54,7 @@ ReplSetTest = function( opts ){
     this.ports = [];
     this.keyFile = opts.keyFile
     this.shardSvr = opts.shardSvr || false;
+    this.dataPath = opts.dataPath || MongoRunner.dataPath;
 
     this.startPort = opts.startPort || 31000;
 
@@ -136,7 +137,7 @@ ReplSetTest.prototype.getPath = function( n ){
     if( n.host )
         n = this.getNodeId( n )
 
-    var p = MongoRunner.dataPath + this.name + "-"+n;
+    var p = this.dataPath + this.name + "-"+n;
     if ( ! this._alldbpaths )
         this._alldbpaths = [ p ];
     else
@@ -159,7 +160,9 @@ ReplSetTest.prototype.getReplSetConfig = function() {
         member['host'] = this.host + ":" + port;
         if( this.nodeOptions[ "n" + i ] && this.nodeOptions[ "n" + i ].arbiter )
             member['arbiterOnly'] = true
-            
+
+        member['tags'] = {node: i.toString()};
+
         cfg.members.push(member);
     }
 
@@ -260,6 +263,20 @@ ReplSetTest.prototype.startSet = function( options ) {
     }
 
     this.nodes = nodes;
+    return this.nodes;
+}
+
+ReplSetTest.prototype.restartSet = function( options, signal, wait ) {
+
+    for (var i = 0; i < this.nodes.length; i++) {
+        try {
+            this.nodes[i].getDB('admin').runCommand({ismaster: 1});
+        }
+        catch (err) {
+            this.restart(i, options, signal, wait);
+        }
+    }
+
     return this.nodes;
 }
 
@@ -673,7 +690,7 @@ ReplSetTest.prototype.start = function( n , options , restart , wait ){
         printjson(options)
 
     // make sure to call getPath, otherwise folders wont be cleaned
-    this.getPath(n);
+    options.dbpath = this.getPath(n);
 
     print("ReplSetTest " + (restart ? "(Re)" : "") + "Starting....");
     
