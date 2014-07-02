@@ -1029,6 +1029,18 @@ ShardingTest.prototype.stopMongos = function(n) {
  * Warning: Overwrites the old s (if n = 0) and sn member variables
  */
 ShardingTest.prototype.restartMongos = function(n) {
+    if (n == undefined) {
+        for (var i = 0; i < this._mongos.length; i++) {
+            try {
+                this._mongos[i].getDB('admin').runCommand({ismaster: 1});
+            }
+            catch (err) {
+                this.restartMongos(i);
+            }
+        }
+        return;
+    }
+
     this.stopMongos(n);
     var newConn = MongoRunner.runMongos(this['s' + n].commandLine);
 
