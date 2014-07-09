@@ -74,7 +74,7 @@ Mongo.prototype.getCollection = function(ns){
 }
 
 Mongo.prototype.toString = function(){
-    return "connection to " + this.host;
+    return "\"connection to " + this.host + "\"";
 }
 Mongo.prototype.tojson = Mongo.prototype.toString;
 
